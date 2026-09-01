@@ -254,23 +254,24 @@ A large spread and a small number of changes show a market with a low
 efficiency. A small spread and many changes show a market with a high
 efficiency.
 
-## 11. The two services on macOS
+## 11. The three services on macOS
 
 A service starts at each login. It also starts again after an error. Use the
 services for a collection of many days.
 
-To install the two services, use this command:
+To install the three services, use this command:
 
 ```bash
 bash macos/install_service.sh KXHIGHNY
 ```
 
-The command installs two services:
+The command installs three services:
 
 | Service | Function |
 | --- | --- |
 | collector | It runs always. It writes each change of a quote. |
 | backfill | It runs each hour. It gets the past minutes from Kalshi. |
+| report | It runs each 5 minutes. It makes the dashboard `report.html`. |
 
 The backfill fills each gap of the collector. A gap occurs when the Mac sleeps.
 A gap also occurs after an error. Because of this, the two services together
@@ -285,13 +286,13 @@ tail -f backfill.log
 
 Push Ctrl-C to leave a log. The service continues.
 
-To stop the two services, use this command:
+To stop the three services, use this command:
 
 ```bash
 bash macos/uninstall_service.sh
 ```
 
-The command stops the two services. It does not remove your data.
+The command stops the three services. It does not remove your data.
 
 **NOTE: A Mac in sleep collects no data with the collector.** The collector
 stops with the sleep. It starts again after the wake. The backfill then gets
@@ -359,3 +360,60 @@ program `read_data.py` reads only the files of the collector.
 | `taker_book_side` | The side of the book: `bid` or `ask`. |
 | `taker_outcome_side` | The side of the taker: `yes` or `no`. |
 | `is_block_trade` | True for a large trade outside the book. |
+
+
+## 13. The dashboard
+
+The program `make_report.py` makes one HTML file. Open this file in a browser.
+The file contains all data and all graphs. It needs no server and no library.
+
+```bash
+python3 make_report.py --open
+```
+
+The page reads itself again each minute. The service of section 11 writes the
+page again each 5 minutes. So the page is always new.
+
+The page has five parts.
+
+1. The numbers of the collection: the markets, the changes of a quote, the mean
+   spread, the spread as a percent of the price, and the median round-trip time.
+2. The ladder test. This test is in the next part of this section.
+3. One line for each market, with a small graph of the middle price.
+4. The distribution of the spread.
+5. The activity for each hour of the day.
+
+### The ladder test
+
+The markets of one event make a ladder. An example is the event KXHIGHNY-26SEP01:
+
+| Market | Question |
+| --- | --- |
+| `T85` | Is the maximum temperature more than 85 degrees? |
+| `T88` | Is the maximum temperature more than 88 degrees? |
+| `T90` | Is the maximum temperature more than 90 degrees? |
+
+A temperature above 90 degrees is also above 85 degrees. So the market `T90`
+must not have a higher price than the market `T85`. This rule is a law. It is
+not an opinion.
+
+Sometimes the market breaks this rule for some seconds. Then a trader has a
+profit without a risk:
+
+1. Buy `T85` at the ask.
+2. Sell `T90` at the bid.
+3. The profit is the difference between the two prices.
+
+The page shows each window with this error. It shows the two markets, the profit
+for one contract, the start, the end and the number of seconds. A market with
+many windows has a low efficiency.
+
+**NOTE: The page shows the past, not an offer.** A window of the past is not
+open now. The size and the number of the windows measure the efficiency of the
+market.
+
+### The colors
+
+The graphs use one color for the data. The colors come from a palette with a
+test for color blindness. The page has a light mode and a dark mode. It follows
+the setting of your computer.

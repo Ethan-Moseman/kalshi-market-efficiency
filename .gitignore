@@ -5,3 +5,5 @@ __pycache__/
 venv/
 collector.log
 backfill.log
+report.log
+report.html
