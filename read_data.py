@@ -29,6 +29,10 @@ import sys
 import time
 
 DEFAULT_DATA_DIR = "data"
+
+# A file of the collector contains these columns. A file without these columns
+# comes from a different program. The reader ignores that file.
+NECESSARY_COLUMNS = ("recv_ts_ns", "rtt_ms", "ticker", "yes_bid", "yes_ask")
 NS_IN_ONE_SECOND = 1_000_000_000
 SECONDS_IN_ONE_HOUR = 3600.0
 
@@ -40,12 +44,22 @@ def find_files(data_dir, series=None, date=None):
 
 
 def read_lines(paths):
-    """Read all lines of all files. Return a list of dictionaries."""
+    """Read all lines of all files. Return a list of dictionaries.
+
+    The folder can contain a file of a different program. An example is a file
+    of backfill.py. That file has different columns. The program ignores such a
+    file.
+    """
     lines = []
     for path in paths:
         with open(path, newline="", encoding="utf-8") as handle:
-            for line in csv.DictReader(handle):
-                lines.append(line)
+            reader = csv.DictReader(handle)
+            names = reader.fieldnames or []
+            if not set(NECESSARY_COLUMNS).issubset(names):
+                print(f"The program ignores the file {path}. It has different "
+                      "columns.", file=sys.stderr)
+                continue
+            lines.extend(reader)
     return lines
 
 

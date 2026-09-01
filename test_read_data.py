@@ -182,6 +182,18 @@ class TestOutput(ReaderTestCase):
         code, _text = self.run_main(["--data-dir", self.data_dir])
         self.assertEqual(code, 1)
 
+    def test_the_program_ignores_a_file_with_different_columns(self):
+        self.write_file([make_line(0, ticker="T90")])
+        # This file comes from the program backfill.py. It has other columns.
+        other = os.path.join(self.data_dir, "candles_KXHIGHNY.csv")
+        with open(other, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["ticker", "end_period_ts"])
+            writer.writeheader()
+            writer.writerow({"ticker": "T90", "end_period_ts": "1788184860"})
+        code, text = self.run_main(["--data-dir", self.data_dir])
+        self.assertEqual(code, 0)
+        self.assertIn("lines    : 1", text)
+
     def test_an_absent_value_becomes_a_dash(self):
         self.assertEqual(rd.show(None, 4, 6).strip(), "-")
         self.assertEqual(rd.show(0.015, 4, 6).strip(), "0.0150")

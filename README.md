@@ -295,3 +295,62 @@ There are three solutions:
 2. Change the energy settings of the Mac. Then the Mac does not sleep.
 3. Put the collector on a small computer in the cloud. This solution is the
    best solution for a collection of many weeks.
+
+## 12. The past data
+
+The collector gets only the present. The program `backfill.py` gets the past.
+Kalshi keeps two groups of past data.
+
+1. The candlesticks give the open, the high, the low and the close of `yes_bid`
+   and `yes_ask` for each minute.
+2. The trades give the price, the number of contracts, the time and the side of
+   the taker for each trade.
+
+The endpoints are public. They need no password.
+
+```bash
+python3 backfill.py                                  # The series KXHIGHNY.
+python3 backfill.py --series KXHIGHNY --days 3       # The last three days.
+python3 backfill.py --ticker KXHIGHNY-26SEP01-T90    # One market only.
+python3 backfill.py --what trades                    # The trades only.
+python3 backfill.py --status all                     # Also the closed markets.
+```
+
+The program writes to these two files:
+
+    data/history/candles_KXHIGHNY.csv
+    data/history/trades_KXHIGHNY.csv
+
+You may run the program more than one time. It reads the file first. Then it
+adds only the new lines. It makes no copy of a line. A candlestick has the key
+`ticker` and `end_period_ts`. A trade has the key `trade_id`.
+
+**NOTE: The past data is in the folder `data/history/`.** The data of the
+collector is in the folder `data/`. The two groups have different columns. The
+program `read_data.py` reads only the files of the collector.
+
+### The columns of the candlesticks
+
+| Column | Meaning |
+| --- | --- |
+| `ticker` and `event_ticker` | The names of the market and the event. |
+| `end_period_ts` | The end of the minute, in seconds after 1970-01-01. |
+| `end_period_utc` | The same time in the UTC zone. |
+| `yes_bid_open` to `yes_bid_close` | The four values of `yes_bid` in the minute. |
+| `yes_ask_open` to `yes_ask_close` | The four values of `yes_ask` in the minute. |
+| `price_open` to `price_close` | The four values of the trade price. |
+| `volume` and `open_interest` | The counters at the end of the minute. |
+
+### The columns of the trades
+
+| Column | Meaning |
+| --- | --- |
+| `trade_id` | The name of the trade. It is unique. |
+| `ticker` | The name of the market. |
+| `created_time` | The time of the trade. |
+| `yes_price_dollars` | The price of YES, in dollars. |
+| `no_price_dollars` | The price of NO, in dollars. |
+| `count_fp` | The number of contracts. |
+| `taker_book_side` | The side of the book: `bid` or `ask`. |
+| `taker_outcome_side` | The side of the taker: `yes` or `no`. |
+| `is_block_trade` | True for a large trade outside the book. |
