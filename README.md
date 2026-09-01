@@ -374,14 +374,31 @@ python3 make_report.py --open
 The page reads itself again each minute. The service of section 11 writes the
 page again each 5 minutes. So the page is always new.
 
-The page has five parts.
+### The header
 
-1. The numbers of the collection: the markets, the changes of a quote, the mean
-   spread, the spread as a percent of the price, and the median round-trip time.
-2. The ladder test. This test is in the next part of this section.
-3. One line for each market, with a small graph of the middle price.
-4. The distribution of the spread.
-5. The activity for each hour of the day.
+| Item | Meaning |
+| --- | --- |
+| Session | The time of the first change and the time of the last change. |
+| Last update | The age of the last change. Red shows an age of more than 2 minutes. |
+| Longest quiet time | The longest time between two changes. |
+| Quiet times > 2 min | The number of long quiet times. A large number shows a stop of the collector. |
+| Rows of past data | The lines in the folder `data/history/`. |
+
+### The measurements at the top
+
+| Measurement | Meaning |
+| --- | --- |
+| Markets | The number of markets in the data. |
+| Quote updates | The number of changes of a quote. |
+| Spread, time weight | The mean spread in cents. A quote keeps its weight until the next change. |
+| Spread of the price | The same spread in basis points of the middle price. 100 basis points are 1 percent. |
+| Interval, median | The median time between two changes of a quote. |
+| Round trip p50 and p95 | The round-trip time of the requests at the percentile 50 and 95. |
+| Ladder violations | The number of arbitrage windows. |
+
+The mean spread has a weight of the time. A quote of 1 cent that stays for 10
+minutes has more weight than a quote of 5 cents that stays for 1 second. A mean
+without this weight gives a wrong picture of the market.
 
 ### The ladder test
 
@@ -394,8 +411,8 @@ The markets of one event make a ladder. An example is the event KXHIGHNY-26SEP01
 | `T90` | Is the maximum temperature more than 90 degrees? |
 
 A temperature above 90 degrees is also above 85 degrees. So the market `T90`
-must not have a higher price than the market `T85`. This rule is a law. It is
-not an opinion.
+must not have a higher price than the market `T85`. This rule is a law of logic.
+It is not an opinion.
 
 Sometimes the market breaks this rule for some seconds. Then a trader has a
 profit without a risk:
@@ -404,16 +421,48 @@ profit without a risk:
 2. Sell `T90` at the bid.
 3. The profit is the difference between the two prices.
 
-The page shows each window with this error. It shows the two markets, the profit
-for one contract, the start, the end and the number of seconds. A market with
-many windows has a low efficiency.
+The page shows each window with this error. It shows the two markets, the edge
+in cents, the start, the end and the time of the window. A market with many
+windows and large windows has a low efficiency.
 
 **NOTE: The page shows the past, not an offer.** A window of the past is not
 open now. The size and the number of the windows measure the efficiency of the
 market.
 
+### An arbitrage inside one market is not possible
+
+Kalshi makes `no_bid` from `yes_ask` with a subtraction. It makes `no_ask` from
+`yes_bid`. The two sides of one market are always a mirror. So the sum of the
+two asks is always more than one dollar. The ladder between the strikes is the
+only test with a result.
+
+### The table of the markets
+
+| Column | Meaning |
+| --- | --- |
+| Middle price | A small graph of the middle price in the session. |
+| Mid ¢ | The last middle price, in cents. |
+| Spread ¢ | The last spread, in cents. |
+| Time spread ¢ | The mean spread with a weight of the time. |
+| Spread bp | The same spread in basis points of the middle price. |
+| Updates | The number of changes of a quote. |
+| Per hour | The number of changes for each hour. |
+| Gap p50 and p95 | The time between two changes, at the percentile 50 and 95. |
+| Volume and OI | The volume and the open interest in the last line. |
+| RTT ms | The median round-trip time of the requests of this market. |
+
+### The graphs
+
+1. Spread: the number of changes for each value of the spread.
+2. Updates by hour: the activity for each hour of the day.
+3. Session activity: the activity from the start of the session to the end.
+
+Put the pointer on a bar or on a small graph. Then the browser shows the exact
+values.
+
 ### The colors
 
 The graphs use one color for the data. The colors come from a palette with a
-test for color blindness. The page has a light mode and a dark mode. It follows
-the setting of your computer.
+test for color blindness. The numbers use a font with an equal width for each
+digit. Because of this, the columns of the tables stay in a line. The page has a
+light mode and a dark mode. It follows the setting of your computer.

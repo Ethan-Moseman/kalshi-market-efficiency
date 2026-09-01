@@ -119,7 +119,7 @@ class TestNumbers(unittest.TestCase):
                          make_line(1, "E-T85", 0.40, 0.42),
                          make_line(2, "E-T85", 0.40, 0.41)])
         labels, counts = mr.spread_histogram(lines)
-        self.assertEqual(labels, ["0.01", "0.02"])
+        self.assertEqual(labels, ["1.0", "2.0"])
         self.assertEqual(counts, [2, 1])
 
     def test_many_different_spreads_give_groups_of_an_equal_size(self):
@@ -150,6 +150,68 @@ class TestNumbers(unittest.TestCase):
         counts = mr.hour_counts(lines)
         self.assertEqual(len(counts), 24)
         self.assertEqual(sum(counts), 1)
+
+
+class TestDeskNumbers(unittest.TestCase):
+    """Tests for the measurements of a trading desk."""
+
+    def test_the_program_makes_a_text_in_cents(self):
+        self.assertEqual(mr.cents(0.0100), "1.0")
+        self.assertEqual(mr.cents(0.3450), "34.5")
+        self.assertEqual(mr.cents(0.0125, 2), "1.25")
+        self.assertEqual(mr.cents(None), "–")
+
+    def test_the_program_makes_a_text_in_basis_points(self):
+        # A spread of 2 cents on a price of 50 cents is 400 basis points.
+        self.assertEqual(mr.basis_points(0.02, 0.50), "400")
+        self.assertEqual(mr.basis_points(None, 0.50), "–")
+        self.assertEqual(mr.basis_points(0.02, 0), "–")
+
+    def test_the_program_makes_a_short_text_for_a_time(self):
+        self.assertEqual(mr.duration(45), "45s")
+        self.assertEqual(mr.duration(125), "2m 05s")
+        self.assertEqual(mr.duration(7325), "2h 02m")
+        self.assertIsNotNone(mr.duration(0))
+
+    def test_the_program_calculates_a_percentile(self):
+        values = list(range(1, 101))
+        self.assertEqual(mr.percentile(values, 0.50), 51)
+        self.assertEqual(mr.percentile(values, 0.95), 95)
+        self.assertEqual(mr.percentile(values, 0.99), 99)
+        self.assertEqual(mr.percentile([7], 0.95), 7)
+        self.assertIsNone(mr.percentile([], 0.5))
+
+    def test_the_spread_gets_a_weight_of_the_time(self):
+        # The spread of 1 cent holds for 100 seconds. The spread of 5 cents
+        # holds for 1 second. The mean with a weight of the time is near 1 cent.
+        lines = as_text([make_line(0, "E-T85", 0.40, 0.41),
+                         make_line(100, "E-T85", 0.40, 0.45)])
+        end = int(lines[-1]["recv_ts_ns"]) + ONE_SECOND
+        item = mr.market_metrics("E-T85", lines, end)
+        self.assertAlmostEqual(item["mean_spread"], 0.03, places=4)
+        self.assertLess(item["time_spread"], 0.011)
+
+    def test_the_program_finds_the_longest_quiet_time(self):
+        lines = as_text([make_line(0, "E-T85", 0.40, 0.41),
+                         make_line(5, "E-T85", 0.40, 0.42),
+                         make_line(605, "E-T85", 0.40, 0.43)])
+        longest, long_gaps = mr.quiet_times(lines)
+        self.assertAlmostEqual(longest, 600, places=0)
+        self.assertEqual(long_gaps, 1)
+
+    def test_the_program_divides_the_session_into_parts(self):
+        lines = as_text([make_line(i, "E-T85", 0.40, 0.41) for i in range(0, 100, 5)])
+        labels, counts = mr.session_activity(lines, parts=12)
+        self.assertEqual(len(counts), 12)
+        self.assertEqual(sum(counts), 20)
+
+    def test_the_interval_between_two_updates(self):
+        lines = as_text([make_line(0, "E-T85", 0.40, 0.41),
+                         make_line(10, "E-T85", 0.40, 0.42),
+                         make_line(30, "E-T85", 0.40, 0.43)])
+        item = mr.market_metrics("E-T85", lines, int(lines[-1]["recv_ts_ns"]))
+        self.assertAlmostEqual(item["gap_p50"], 20, places=0)
+        self.assertEqual(item["updates"], 3)
 
 
 class TestPage(unittest.TestCase):
@@ -187,7 +249,7 @@ class TestPage(unittest.TestCase):
         self.write_file([make_line(0, "E-T85", 0.40, 0.42),
                          make_line(1, "E-T90", 0.20, 0.22)])
         self.run_main()
-        self.assertIn("No arbitrage", open(self.out, encoding="utf-8").read())
+        self.assertIn("No violation", open(self.out, encoding="utf-8").read())
 
     def test_an_arbitrage_is_in_the_page(self):
         self.write_file([make_line(0, "E-T85", 0.40, 0.42),
@@ -195,7 +257,7 @@ class TestPage(unittest.TestCase):
         self.run_main()
         page = open(self.out, encoding="utf-8").read()
         self.assertIn("arbitrage window(s)", page)
-        self.assertIn("0.0800", page)
+        self.assertIn("8.00", page)
 
     def test_an_empty_folder_gives_an_error(self):
         self.assertEqual(self.run_main(), 1)
@@ -210,7 +272,7 @@ class TestPage(unittest.TestCase):
             handle.write("ticker,end_period_ts\nA,1\nB,2\n")
         self.assertEqual(mr.count_history(self.data_dir), 2)
         self.run_main()
-        self.assertIn("lines of past data", open(self.out, encoding="utf-8").read())
+        self.assertIn("Rows of past data", open(self.out, encoding="utf-8").read())
 
 
 if __name__ == "__main__":
