@@ -35,6 +35,13 @@ DEFAULT_DATA_DIR = "data"
 
 PAGE_LIMIT = 200
 REQUEST_TIMEOUT = 10.0
+
+# The server can close a connection that is open but not in use. Then the next
+# request fails with the message "Connection reset by peer". This is not an
+# error of the program. The program makes the same request again. The second
+# request uses a new connection.
+RETRY_COUNT = 1
+RETRY_PAUSE = 0.5
 MAX_PAGES = 50  # This limit stops an endless loop if the cursor does not end.
 
 # These four fields make the quote. A change of the quote makes a new line.
@@ -103,18 +110,32 @@ def make_session():
 
 
 def fetch_page(session, series_ticker, cursor=None):
-    """Get one page of open markets. Return (payload, recv_ts_ns, rtt_ms)."""
+    """Get one page of open markets. Return (payload, recv_ts_ns, rtt_ms).
+
+    If the connection fails, the program makes the request again. The number of
+    new attempts is RETRY_COUNT. An error code from the server is different. The
+    program does not make that request again.
+    """
     params = {"series_ticker": series_ticker, "status": "open", "limit": PAGE_LIMIT}
     if cursor:
         params["cursor"] = cursor
-    started = time.perf_counter_ns()
-    response = session.get(API_URL, params=params, timeout=REQUEST_TIMEOUT)
-    # The program measures the time with a monotonic clock. A change of the
-    # system clock does not corrupt this measurement.
-    rtt_ms = (time.perf_counter_ns() - started) / 1e6
-    recv_ts_ns = time.time_ns()
-    response.raise_for_status()
-    return response.json(), recv_ts_ns, rtt_ms
+    for attempt in range(RETRY_COUNT + 1):
+        try:
+            started = time.perf_counter_ns()
+            response = session.get(API_URL, params=params, timeout=REQUEST_TIMEOUT)
+            # The program measures the time with a monotonic clock. A change of
+            # the system clock does not corrupt this measurement.
+            rtt_ms = (time.perf_counter_ns() - started) / 1e6
+            recv_ts_ns = time.time_ns()
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if attempt >= RETRY_COUNT:
+                raise
+            _log(f"{series_ticker}: the connection failed ({type(exc).__name__}). "
+                 "The program makes the request again.")
+            time.sleep(RETRY_PAUSE)
+            continue
+        response.raise_for_status()
+        return response.json(), recv_ts_ns, rtt_ms
 
 
 def fetch_markets(session, series_ticker):

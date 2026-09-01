@@ -165,6 +165,10 @@ data.
    next cycle. The program does not stop.
 6. At midnight, the program opens a new file. It also forgets the last quotes.
    Because of this, each daily file starts with a full set of start values.
+7. The server closes an old connection sometimes. Then the request fails with
+   the message "Connection reset by peer". The program makes the same request
+   again one time. An error code from the server is different. The program does
+   not make that request again.
 
 ## 8. The automatic tests
 

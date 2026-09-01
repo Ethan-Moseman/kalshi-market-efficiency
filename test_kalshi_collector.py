@@ -74,6 +74,11 @@ class _Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         self.server.requests.append(query)
         status, body = self.server.responder(query)
+        if status is None:
+            # The server closes the connection. It sends no answer. The client
+            # then sees the error "Connection reset by peer".
+            self.close_connection = True
+            return
         raw = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -181,6 +186,25 @@ class TestRequest(CollectorTestCase):
         for _market, recv_ts_ns, rtt_ms in snapshots:
             self.assertGreater(recv_ts_ns, 1_600_000_000_000_000_000)
             self.assertGreater(rtt_ms, 0.0)
+
+    def test_the_program_makes_a_broken_request_again(self):
+        state = {"n": 0}
+
+        def responder(_query):
+            state["n"] += 1
+            if state["n"] == 1:
+                return None, None
+            return 200, {"markets": [make_live_market()], "cursor": ""}
+
+        self.start_api(responder)
+        snapshots = kc.fetch_markets(kc.make_session(), "KXHIGHNY")
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(state["n"], 2)
+
+    def test_the_program_stops_after_the_last_attempt(self):
+        self.start_api(lambda q: (None, None))
+        with self.assertRaises(requests.ConnectionError):
+            kc.fetch_markets(kc.make_session(), "KXHIGHNY")
 
     def test_an_error_code_makes_an_exception(self):
         self.start_api(lambda q: (500, {"error": "server error"}))
