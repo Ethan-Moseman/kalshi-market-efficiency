@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Poll Kalshi's public markets endpoint and log top-of-book changes to a daily CSV.
+"""Collect prices from the public Kalshi API. Write each change to a CSV file.
 
-The endpoint is public, so no authentication is used. Every poll cycle the
-collector fetches all open markets for each requested series and appends a row
-only for markets whose quote (yes_bid / yes_ask / no_bid / no_ask) changed since
-the previous observation. Each row carries the local receive timestamp in
-nanoseconds and the round-trip time of the request that produced it.
+The endpoint is public. The program uses no password and no key.
 
-Requires: requests (see requirements.txt)
+In each cycle the program asks for all open markets of each series. The program
+writes a line only when the quote of a market changes. The quote is the group of
+four prices: yes_bid, yes_ask, no_bid and no_ask. Each line contains the local
+time of the answer in nanoseconds. Each line also contains the round-trip time
+of the request in milliseconds.
+
+This program needs the library "requests". Refer to the file requirements.txt.
 
 Examples:
-    python3 kalshi_collector.py                       # poll KXHIGHNY every 2s
+    python3 kalshi_collector.py                     # Poll KXHIGHNY each 2 seconds.
     python3 kalshi_collector.py --series KXHIGHNY KXHIGHCHI
-    python3 kalshi_collector.py --inspect             # dump one raw market
+    python3 kalshi_collector.py --inspect           # Print one market. Then stop.
 """
 
 import argparse
@@ -33,10 +35,11 @@ DEFAULT_DATA_DIR = "data"
 
 PAGE_LIMIT = 200
 REQUEST_TIMEOUT = 10.0
-MAX_PAGES = 50  # guard against a cursor that never terminates
+MAX_PAGES = 50  # This limit stops an endless loop if the cursor does not end.
 
-# Fields that decide whether a market's state is "new". Volume and open interest
-# move on every trade; the task is to record quote changes only.
+# These four fields make the quote. A change of the quote makes a new line.
+# The fields volume and open_interest change with each trade. A change of these
+# two fields alone makes no new line.
 QUOTE_FIELDS = ("yes_bid", "yes_ask", "no_bid", "no_ask")
 
 CSV_FIELDS = [
@@ -62,24 +65,31 @@ def _log(msg):
 def _handle_signal(signum, _frame):
     global _stop
     _stop = True
-    _log(f"received signal {signum}, shutting down after this cycle")
+    _log(f"The program received signal {signum}. The program stops after this cycle.")
 
 
 def make_session():
+    """Make one HTTP session. The program uses this session for all requests."""
     session = requests.Session()
-    # Keep-alive matters: at a 2s cadence a fresh TLS handshake per poll would
-    # dominate the round-trip time we are trying to measure.
-    session.headers.update({"Accept": "application/json", "User-Agent": "kalshi-market-collector/1.0"})
+    # The program keeps one connection open. A new connection needs more time
+    # than the request itself. One connection keeps the measurement of the
+    # round-trip time correct.
+    session.headers.update({
+        "Accept": "application/json",
+        "User-Agent": "kalshi-market-collector/1.0",
+    })
     return session
 
 
 def fetch_page(session, series_ticker, cursor=None):
-    """Fetch one page of open markets. Returns (payload, recv_ts_ns, rtt_ms)."""
+    """Get one page of open markets. Return (payload, recv_ts_ns, rtt_ms)."""
     params = {"series_ticker": series_ticker, "status": "open", "limit": PAGE_LIMIT}
     if cursor:
         params["cursor"] = cursor
     started = time.perf_counter_ns()
     response = session.get(API_URL, params=params, timeout=REQUEST_TIMEOUT)
+    # The program measures the time with a monotonic clock. A change of the
+    # system clock does not corrupt this measurement.
     rtt_ms = (time.perf_counter_ns() - started) / 1e6
     recv_ts_ns = time.time_ns()
     response.raise_for_status()
@@ -87,10 +97,10 @@ def fetch_page(session, series_ticker, cursor=None):
 
 
 def fetch_markets(session, series_ticker):
-    """Fetch every open market for a series, following the cursor.
+    """Get all open markets of one series. Follow the cursor to the last page.
 
-    Returns a list of (market, recv_ts_ns, rtt_ms) so each market keeps the
-    timing of the request that actually carried it.
+    Return a list of (market, recv_ts_ns, rtt_ms). Each market keeps the time of
+    the request that carried it.
     """
     snapshots = []
     cursor = None
@@ -106,10 +116,12 @@ def fetch_markets(session, series_ticker):
 
 
 def quote_key(market):
+    """Return the four prices of one market as a tuple."""
     return tuple(market.get(field) for field in QUOTE_FIELDS)
 
 
 def build_row(market, recv_ts_ns, rtt_ms):
+    """Make one line for the CSV file."""
     row = {
         "recv_ts_ns": recv_ts_ns,
         "rtt_ms": f"{rtt_ms:.3f}",
@@ -120,12 +132,13 @@ def build_row(market, recv_ts_ns, rtt_ms):
     }
     for field in QUOTE_FIELDS:
         row[field] = market.get(field)
-    # csv writes None as an empty string already; this keeps that explicit.
+    # The csv module writes the value None as an empty cell. The next line makes
+    # this behavior clear to the reader.
     return {k: ("" if v is None else v) for k, v in row.items()}
 
 
 class DailyCsvWriter:
-    """Append rows to data/<series>_<YYYY-MM-DD>.csv, rolling over at midnight."""
+    """Add lines to data/<series>_<date>.csv. Open a new file at midnight."""
 
     def __init__(self, data_dir, series_ticker):
         self.data_dir = data_dir
@@ -139,6 +152,7 @@ class DailyCsvWriter:
         return os.path.join(self.data_dir, f"{self.series_ticker}_{self.day}.csv")
 
     def _roll(self, day):
+        """Close the old file. Then open the file of the given day."""
         self.close()
         self.day = day
         os.makedirs(self.data_dir, exist_ok=True)
@@ -148,10 +162,10 @@ class DailyCsvWriter:
         self.writer = csv.DictWriter(self.handle, fieldnames=CSV_FIELDS)
         if is_new:
             self.writer.writeheader()
-        _log(f"{self.series_ticker}: writing to {path}")
+        _log(f"{self.series_ticker}: the program writes to {path}")
 
     def write(self, row):
-        """Write a row, returning True if the write opened a new daily file."""
+        """Write one line. Return True if the program opened a new daily file."""
         today = time.strftime("%Y-%m-%d")
         rolled = today != self.day
         if rolled:
@@ -160,10 +174,12 @@ class DailyCsvWriter:
         return rolled
 
     def flush(self):
+        """Send the lines in memory to the disk."""
         if self.handle:
             self.handle.flush()
 
     def close(self):
+        """Write the last lines to the disk. Then close the file."""
         if self.handle:
             self.handle.flush()
             self.handle.close()
@@ -172,13 +188,16 @@ class DailyCsvWriter:
 
 
 class SeriesCollector:
+    """Poll one series. Write each change of a quote to the daily CSV file."""
+
     def __init__(self, series_ticker, data_dir):
         self.series_ticker = series_ticker
         self.writer = DailyCsvWriter(data_dir, series_ticker)
         self.last_quotes = {}
-        self.rows_written = 0
+        self.lines_written = 0
 
     def poll(self, session):
+        """Do one poll. Return the number of markets and the number of lines."""
         snapshots = fetch_markets(session, self.series_ticker)
         written = 0
         for market, recv_ts_ns, rtt_ms in snapshots:
@@ -186,48 +205,53 @@ class SeriesCollector:
             if not ticker:
                 continue
             key = quote_key(market)
-            # A market seen for the first time is written as a baseline, so the
-            # file always starts from a known book rather than a bare delta.
+            # The program sees this market for the first time. It writes a start
+            # value. Because of this, the file starts with a known quote.
             if self.last_quotes.get(ticker) == key:
                 continue
             rolled = self.writer.write(build_row(market, recv_ts_ns, rtt_ms))
             if rolled:
-                # New daily file: drop the cache so this file also gets a full
-                # baseline snapshot instead of only post-midnight changes.
+                # This is a new daily file. The program forgets the last quotes.
+                # Because of this, the new file also gets a full set of start
+                # values.
                 self.last_quotes.clear()
             self.last_quotes[ticker] = key
             written += 1
         self.writer.flush()
-        self.rows_written += written
+        self.lines_written += written
         return len(snapshots), written
 
     def close(self):
+        """Close the CSV file."""
         self.writer.close()
 
 
 def run_inspect(session, series_ticker, ticker=None):
+    """Send one request. Print the raw JSON of one market. Then stop."""
     payload, _recv_ts_ns, rtt_ms = fetch_page(session, series_ticker)
     markets = payload.get("markets") or []
-    _log(f"{series_ticker}: {len(markets)} open market(s) in {rtt_ms:.1f} ms")
+    _log(f"{series_ticker}: {len(markets)} open market(s). The RTT was {rtt_ms:.1f} ms.")
     if not markets:
-        _log("no open markets returned; nothing to inspect")
+        _log("There are no open markets. The program stops.")
         return 1
     if ticker:
         match = next((m for m in markets if m.get("ticker") == ticker), None)
         if match is None:
-            _log(f"ticker {ticker} not in the first page; available: "
-                 + ", ".join(m.get("ticker", "?") for m in markets))
+            _log(f"The ticker {ticker} is not on the first page. These tickers are "
+                 "available: " + ", ".join(m.get("ticker", "?") for m in markets))
             return 1
     else:
         match = markets[0]
-        _log(f"showing raw JSON for {match.get('ticker')} (use --ticker to pick another)")
+        _log(f"The program shows the raw JSON of {match.get('ticker')}. "
+             "To select a different market, use the option --ticker.")
     print(json.dumps(match, indent=2, sort_keys=True))
     return 0
 
 
 def run_collect(session, collectors, interval):
-    _log("polling %s every %.1fs (Ctrl-C to stop)"
-         % (", ".join(c.series_ticker for c in collectors), interval))
+    """Poll all series until the user or the system stops the program."""
+    names = ", ".join(c.series_ticker for c in collectors)
+    _log(f"The program polls {names} each {interval:.1f} seconds. To stop, push Ctrl-C.")
     cycle = 0
     errors = 0
     start = time.monotonic()
@@ -237,43 +261,55 @@ def run_collect(session, collectors, interval):
                 seen, written = collector.poll(session)
             except requests.RequestException as exc:
                 errors += 1
-                _log(f"{collector.series_ticker}: request failed: {exc}")
-            except ValueError as exc:  # malformed JSON body
+                _log(f"{collector.series_ticker}: the request failed: {exc}")
+            except ValueError as exc:
+                # The body of the answer is not correct JSON.
                 errors += 1
-                _log(f"{collector.series_ticker}: bad response body: {exc}")
+                _log(f"{collector.series_ticker}: the answer is not correct JSON: {exc}")
             else:
                 if written:
-                    _log(f"{collector.series_ticker}: {written} change(s) of {seen} market(s)")
+                    _log(f"{collector.series_ticker}: {written} change(s) "
+                         f"in {seen} market(s).")
         cycle += 1
-        # Absolute deadlines keep the cadence from drifting with request latency.
+        # The program calculates the time of the next cycle from the start time.
+        # Because of this, the duration of a request does not move the later
+        # cycles.
         deadline = start + cycle * interval
         while not _stop:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            # The program sleeps in short steps. Because of this, it answers a
+            # signal quickly.
             time.sleep(min(remaining, 0.25))
 
-    total = sum(c.rows_written for c in collectors)
-    _log(f"stopped after {cycle} cycle(s): {total} row(s) written, {errors} error(s)")
+    total = sum(c.lines_written for c in collectors)
+    _log(f"The program stopped after {cycle} cycle(s). It wrote {total} line(s). "
+         f"There were {errors} error(s).")
     return 0
 
 
 def parse_args(argv=None):
+    """Read the options from the command line."""
     parser = argparse.ArgumentParser(
-        description="Poll Kalshi open markets and log quote changes to a daily CSV.")
+        description="Poll the open Kalshi markets. Write each change of a quote "
+                    "to a daily CSV file.")
     parser.add_argument("--series", nargs="+", default=DEFAULT_SERIES, metavar="TICKER",
-                        help="series ticker(s) to poll (default: %s)" % " ".join(DEFAULT_SERIES))
+                        help="The series to poll. Give one name or more. "
+                             "Default: %s" % " ".join(DEFAULT_SERIES))
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL,
-                        help="seconds between polls (default: %(default)s)")
+                        help="The time between two cycles, in seconds. "
+                             "Default: %(default)s")
     parser.add_argument("--data-dir", default=DEFAULT_DATA_DIR,
-                        help="directory for the daily CSV files (default: %(default)s)")
+                        help="The folder for the daily CSV files. Default: %(default)s")
     parser.add_argument("--inspect", action="store_true",
-                        help="fetch once, print the raw JSON of a single market, and exit")
-    parser.add_argument("--ticker", help="with --inspect, the specific market ticker to print")
+                        help="Send one request. Print the JSON of one market. Then stop.")
+    parser.add_argument("--ticker",
+                        help="With --inspect, the market to print.")
     parser.add_argument("--api-url", default=API_URL, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.interval <= 0:
-        parser.error("--interval must be greater than 0")
+        parser.error("--interval must be more than 0")
     return args
 
 
