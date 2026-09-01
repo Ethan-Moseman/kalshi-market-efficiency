@@ -208,3 +208,86 @@ answer from the API.
 
 **CAUTION: Do the test in section 4 before your first long collection.** The
 API can change again. This test finds the change in 5 seconds.
+
+## 10. The program that reads the data
+
+The file `read_data.py` reads the CSV files. It prints one line for each market.
+This program uses no library.
+
+```bash
+python3 read_data.py                    # All files in the folder data/.
+python3 read_data.py --series KXHIGHNY  # The files of one series.
+python3 read_data.py --date 2026-09-01  # The files of one day.
+python3 read_data.py --ticker KXHIGHNY-26SEP01-T90   # Each line of one market.
+```
+
+The result looks like this:
+
+    ticker                      lines     first      last  chg/hour    spread    middle    volume   rtt ms
+    ------------------------------------------------------------------------------------------------------
+    KXHIGHNY-26SEP01-T85          120  02:10:48  05:40:41      34.0    0.0147    0.4082      4473    178.8
+    KXHIGHNY-26SEP01-T90           40  02:09:55  03:21:48      32.6    0.0155    0.0192      2823    177.5
+
+    files    : 1
+    markets  : 2
+    lines    : 160
+    rtt ms   : median 178.4, minimum 120.2, maximum 259.0
+    spread   : mean 0.0151 dollars
+
+| Column | Meaning |
+| --- | --- |
+| `lines` | The number of changes of the quote in the data. |
+| `first` and `last` | The local time of the first line and the last line. |
+| `chg/hour` | The number of changes for each hour. |
+| `spread` | The mean difference between `yes_ask` and `yes_bid`, in dollars. |
+| `middle` | The mean of `yes_bid` and `yes_ask`, in dollars. |
+| `volume` | The volume in the last line. |
+| `rtt ms` | The median round-trip time, in milliseconds. |
+
+A dash in a column means that the program found no value.
+
+A large spread and a small number of changes show a market with a low
+efficiency. A small spread and many changes show a market with a high
+efficiency.
+
+## 11. The collector as a service on macOS
+
+A service starts at each login. It also starts again after an error. Use a
+service for a collection of many days.
+
+To install the service, use this command:
+
+```bash
+bash macos/install_service.sh KXHIGHNY
+```
+
+The script does these actions:
+
+1. It examines the virtual environment.
+2. It writes a control file for launchd to `~/Library/LaunchAgents/`.
+3. It starts the collector.
+4. It sends all messages to the file `collector.log`.
+
+To see the messages, use this command:
+
+```bash
+tail -f collector.log
+```
+
+To stop the service, use this command:
+
+```bash
+bash macos/uninstall_service.sh
+```
+
+The command stops the collector. It does not remove your data.
+
+**CAUTION: A Mac in sleep does not collect data.** The service stops with the
+sleep of the computer. It starts again after the wake.
+
+There are three solutions:
+
+1. Keep the Mac awake with the command `caffeinate -i -s`.
+2. Change the energy settings of the Mac. Then the Mac does not sleep.
+3. Put the collector on a small computer in the cloud. This solution is the
+   best solution for a collection of many weeks.
