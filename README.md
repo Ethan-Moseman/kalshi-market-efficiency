@@ -265,6 +265,12 @@ To install the three services, use this command:
 bash macos/install_service.sh KXHIGHNY
 ```
 
+Give more than one series to collect more markets:
+
+```bash
+bash macos/install_service.sh KXHIGHNY KXHIGHCHI KXHIGHMIA KXHIGHAUS
+```
+
 The command installs three services:
 
 | Service | Function |
@@ -316,6 +322,7 @@ The endpoints are public. They need no password.
 
 ```bash
 python3 backfill.py                                  # The series KXHIGHNY.
+python3 backfill.py --series KXHIGHNY KXHIGHCHI      # Two series.
 python3 backfill.py --series KXHIGHNY --days 3       # The last three days.
 python3 backfill.py --ticker KXHIGHNY-26SEP01-T90    # One market only.
 python3 backfill.py --what trades                    # The trades only.
@@ -466,3 +473,48 @@ The graphs use one color for the data. The colors come from a palette with a
 test for color blindness. The numbers use a font with an equal width for each
 digit. Because of this, the columns of the tables stay in a line. The page has a
 light mode and a dark mode. It follows the setting of your computer.
+
+
+## 14. The list of the series
+
+The collector needs the ticker of a series. The program `find_series.py` finds
+each ticker from the public endpoint `/events`.
+
+```bash
+python3 find_series.py                     # All categories.
+python3 find_series.py --category weather  # The weather markets only.
+python3 find_series.py --category weather --tickers
+```
+
+The result looks like this:
+
+    Climate and Weather
+    ------------------------------------------
+      KXHIGHNY     2 event(s)  Highest temperature in NYC
+      KXHIGHCHI    2 event(s)  Highest temperature in Chicago
+
+    2 series of 48 event(s).
+    To collect all of them, use this command:
+      python3 kalshi_collector.py --series KXHIGHNY KXHIGHCHI
+
+The option `--tickers` prints only the names, in one line. Put that line after
+the option `--series` of the collector.
+
+The name of an event starts with the name of its series. An example is the event
+`KXHIGHNY-26SEP01`. Its series is `KXHIGHNY`. The program uses this rule.
+
+**NOTE: Kalshi can change the names of its series.** Run this program again if a
+series gives no market.
+
+### Why more than one series
+
+A study of one city is weak. A study of many cities can compare a busy market
+with a quiet market. The ladder test then gives a result for each city.
+
+Collect the weather series together:
+
+```bash
+python3 kalshi_collector.py --series $(python3 find_series.py --category weather --tickers)
+```
+
+Each series gets its own CSV file. The dashboard shows all series together.

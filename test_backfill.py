@@ -281,6 +281,22 @@ class TestFiles(BackfillTestCase):
         rows = self.read_csv("trades_KXHIGHNY.csv")
         self.assertEqual([row["trade_id"] for row in rows], ["trade-1", "trade-2"])
 
+    def test_the_program_collects_two_series(self):
+        def responder(path, query):
+            if path.endswith("/markets/trades"):
+                series = (query.get("ticker") or ["X"])[0].split("-")[0]
+                return {"trades": [dict(TRADE, trade_id="id-" + series)], "cursor": ""}
+            if path.endswith("/markets"):
+                series = (query.get("series_ticker") or ["KXHIGHNY"])[0]
+                return {"markets": [dict(MARKET, ticker=series + "-26SEP01-T90")],
+                        "cursor": ""}
+            return default_responder(path, query)
+
+        self.start_api(responder)
+        self.run_main(["--series", "KXHIGHNY", "KXHIGHCHI", "--what", "trades"])
+        names = sorted(os.listdir(self.data_dir))
+        self.assertEqual(names, ["trades_KXHIGHCHI.csv", "trades_KXHIGHNY.csv"])
+
     def test_the_option_what_selects_the_data(self):
         self.start_api()
         self.run_main(["--what", "candles"])
@@ -296,7 +312,7 @@ class TestOptions(unittest.TestCase):
 
     def test_the_default_series_is_kxhighny(self):
         args = bf.parse_args([])
-        self.assertEqual(args.series, "KXHIGHNY")
+        self.assertEqual(args.series, ["KXHIGHNY"])
         self.assertEqual(args.what, "both")
         self.assertEqual(args.interval, 1)
 

@@ -25,6 +25,7 @@ Requires: requests (see requirements.txt)
 
 Examples:
     python3 backfill.py                                  # The series KXHIGHNY.
+    python3 backfill.py --series KXHIGHNY KXHIGHCHI      # Two series.
     python3 backfill.py --series KXHIGHNY --days 3       # The last three days.
     python3 backfill.py --ticker KXHIGHNY-26SEP01-T90    # Only one market.
     python3 backfill.py --what trades                    # Only the trades.
@@ -41,7 +42,7 @@ import requests
 
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 
-DEFAULT_SERIES = "KXHIGHNY"
+DEFAULT_SERIES = ["KXHIGHNY"]
 DEFAULT_DATA_DIR = os.path.join("data", "history")
 DEFAULT_INTERVAL_MINUTES = 1
 
@@ -266,8 +267,10 @@ def parse_args(argv=None):
     """Read the options from the command line."""
     parser = argparse.ArgumentParser(
         description="Collect the past data of Kalshi. Write it to CSV files.")
-    parser.add_argument("--series", default=DEFAULT_SERIES,
-                        help="The series. Default: %(default)s")
+    parser.add_argument("--series", nargs="+", default=DEFAULT_SERIES,
+                        metavar="TICKER",
+                        help="The series. Give one name or more. Default: %s"
+                             % " ".join(DEFAULT_SERIES))
     parser.add_argument("--ticker",
                         help="Collect the data of one market only.")
     parser.add_argument("--what", choices=["candles", "trades", "both"],
@@ -293,19 +296,17 @@ def parse_args(argv=None):
     return args
 
 
-def main(argv=None):
-    global BASE_URL
-    args = parse_args(argv)
-    BASE_URL = args.base_url
-    session = make_session()
+def collect_series(session, args, series_ticker, now_ts):
+    """Collect the past data of one series.
 
-    markets = fetch_markets(session, args.series, args.status, args.ticker)
+    Return the number of new lines. Return None if the API gave no market.
+    """
+    markets = fetch_markets(session, series_ticker, args.status, args.ticker)
     if not markets:
-        _log(f"{args.series}: the API gave no market. Try --status all.")
-        return 1
-    _log(f"{args.series}: {len(markets)} market(s).")
+        _log(f"{series_ticker}: the API gave no market. Try --status all.")
+        return None
+    _log(f"{series_ticker}: {len(markets)} market(s).")
 
-    now_ts = int(time.time())
     candle_rows = []
     trade_rows = []
     for market in markets:
@@ -322,7 +323,7 @@ def main(argv=None):
             continue
 
         if args.what in ("candles", "both"):
-            rows = fetch_candles(session, args.series, market, start_ts, end_ts,
+            rows = fetch_candles(session, series_ticker, market, start_ts, end_ts,
                                  args.interval)
             candle_rows.extend(rows)
             _log(f"{ticker}: {len(rows)} candlestick(s).")
@@ -333,19 +334,41 @@ def main(argv=None):
 
     written = 0
     if candle_rows:
-        path = os.path.join(args.data_dir, f"candles_{args.series}.csv")
+        path = os.path.join(args.data_dir, f"candles_{series_ticker}.csv")
         new = append_new_rows(path, CANDLE_FIELDS, candle_rows,
                               ("ticker", "end_period_ts"))
         _log(f"{path}: {new} new line(s) of {len(candle_rows)}.")
         written += new
     if trade_rows:
-        path = os.path.join(args.data_dir, f"trades_{args.series}.csv")
+        path = os.path.join(args.data_dir, f"trades_{series_ticker}.csv")
         new = append_new_rows(path, TRADE_FIELDS, trade_rows, ("trade_id",))
         _log(f"{path}: {new} new line(s) of {len(trade_rows)}.")
         written += new
+    return written
+
+
+def main(argv=None):
+    global BASE_URL
+    args = parse_args(argv)
+    BASE_URL = args.base_url
+    session = make_session()
+
+    now_ts = int(time.time())
+    written = 0
+    found = 0
+    for series_ticker in args.series:
+        try:
+            new = collect_series(session, args, series_ticker, now_ts)
+        except requests.RequestException as exc:
+            _log(f"{series_ticker}: the request failed: {exc}")
+            continue
+        if new is None:
+            continue
+        found += 1
+        written += new
 
     _log(f"The program wrote {written} new line(s).")
-    return 0
+    return 0 if found else 1
 
 
 if __name__ == "__main__":

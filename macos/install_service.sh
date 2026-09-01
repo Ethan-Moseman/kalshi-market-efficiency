@@ -9,12 +9,17 @@
 #
 # The two services start at each login of the user.
 #
-# Use: bash macos/install_service.sh [SERIES]
-# The default series is KXHIGHNY.
+# Use: bash macos/install_service.sh [SERIES ...]
+# Give one series or more. The default series is KXHIGHNY.
+# An example with four series:
+#     bash macos/install_service.sh KXHIGHNY KXHIGHCHI KXHIGHMIA KXHIGHAUS
 
 set -euo pipefail
 
-SERIES="${1:-KXHIGHNY}"
+SERIES=("$@")
+if [ ${#SERIES[@]} -eq 0 ]; then
+    SERIES=("KXHIGHNY")
+fi
 COLLECTOR_LABEL="com.ethanmoseman.kalshi-collector"
 BACKFILL_LABEL="com.ethanmoseman.kalshi-backfill"
 REPORT_LABEL="com.ethanmoseman.kalshi-report"
@@ -93,10 +98,10 @@ start_service() {
 
 # Step 2: write the three control files.
 write_plist "$COLLECTOR_LABEL" "collector.log" KeepAlive 0 \
-    "$PYTHON" "$REPO/kalshi_collector.py" --series "$SERIES"
+    "$PYTHON" "$REPO/kalshi_collector.py" --series "${SERIES[@]}"
 
 write_plist "$BACKFILL_LABEL" "backfill.log" StartInterval 3600 \
-    "$PYTHON" "$REPO/backfill.py" --series "$SERIES" --days 1
+    "$PYTHON" "$REPO/backfill.py" --days 1 --series "${SERIES[@]}"
 
 write_plist "$REPORT_LABEL" "report.log" StartInterval 300 \
     "$PYTHON" "$REPO/make_report.py"
@@ -107,7 +112,7 @@ start_service "$BACKFILL_LABEL"
 start_service "$REPORT_LABEL"
 
 echo "The three services are installed and started."
-echo "  series   : $SERIES"
+echo "  series   : ${SERIES[*]}"
 echo "  collector: it runs always. Log: $REPO/collector.log"
 echo "  backfill : it runs each hour. Log: $REPO/backfill.log"
 echo "  report   : it runs each 5 minutes. Log: $REPO/report.log"
