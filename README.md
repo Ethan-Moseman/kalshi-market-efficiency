@@ -124,20 +124,44 @@ data.
 6. At midnight, the program opens a new file. It also forgets the last quotes.
    Because of this, each daily file starts with a full set of start values.
 
-## 8. Status of the tests
+## 8. The automatic tests
+
+The file `test_kalshi_collector.py` contains 24 automatic tests. The tests use a
+small fake server on your computer. They need no connection to the internet.
+
+To run the tests, use this command:
+
+    python3 -m unittest discover -v
+
+The tests examine these rules:
+
+1. The request contains the correct parameters.
+2. The program reads all pages of a long answer.
+3. Each page keeps the time of its own request.
+4. An error code from the API makes an exception.
+5. The program writes one line for the first sight of a market.
+6. The program writes no line when the quote stays the same.
+7. A change of each of the four prices makes a new line.
+8. A change of the volume alone makes no new line.
+9. A market without a ticker makes no line.
+10. An empty value from the API becomes an empty cell.
+11. The values in the line are equal to the values from the API.
+12. The name of the file contains the series and the date.
+13. The program writes the header one time only.
+14. The program opens a new file after midnight.
+15. The loop continues after a network error.
+16. The loop stops after a signal.
+17. The options on the command line have the correct effect.
+
+Run the tests after each change to the program.
+
+## 9. The status against the real API
 
 The author could not test this program against the real Kalshi API. The network
 gate of the test computer denied the connection. This is a rule of that
 computer. It is not a fault in the program.
 
-The author tested the program against a local test server. These tests passed:
-
-1. The program writes a line only when the quote changes.
-2. The program ignores a change of `volume` alone.
-3. The program reads all pages of a long answer.
-4. The program makes a new file after midnight.
-5. The program continues after a network error.
-6. The program stops in a clean manner after Ctrl-C.
+All tests against the fake server passed.
 
 **CAUTION: Do the test in section 4 before your first long collection.** This
 test shows the true field names from Kalshi. It also shows that your network
