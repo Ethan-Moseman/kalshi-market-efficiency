@@ -6,4 +6,6 @@ venv/
 collector.log
 backfill.log
 report.log
+weather.log
 report.html
+weather_cities.json

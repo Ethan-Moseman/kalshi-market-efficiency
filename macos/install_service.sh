@@ -6,6 +6,9 @@
 #            Kalshi. It fills each gap of the collector. A gap occurs when the
 #            Mac sleeps, or after an error.
 # Service 3: the report. It runs each 5 minutes. It makes the file report.html.
+# Service 4: the weather. It runs always. It records the forecast of the National
+#            Weather Service and the observed temperature. These two files give
+#            the delay between new information and a new price.
 #
 # The two services start at each login of the user.
 #
@@ -23,6 +26,7 @@ fi
 COLLECTOR_LABEL="com.ethanmoseman.kalshi-collector"
 BACKFILL_LABEL="com.ethanmoseman.kalshi-backfill"
 REPORT_LABEL="com.ethanmoseman.kalshi-report"
+WEATHER_LABEL="com.ethanmoseman.kalshi-weather"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$REPO/.venv/bin/python3"
 AGENTS="$HOME/Library/LaunchAgents"
@@ -42,7 +46,7 @@ if [ ! -x "$PYTHON" ]; then
     exit 1
 fi
 
-mkdir -p "$AGENTS" "$REPO/data" "$REPO/data/history"
+mkdir -p "$AGENTS" "$REPO/data" "$REPO/data/history" "$REPO/data/weather"
 
 # write_plist LABEL LOGFILE KEY VALUE PROGRAM_ARGUMENTS...
 # The key is KeepAlive for a program that runs always. The key is StartInterval
@@ -96,7 +100,7 @@ start_service() {
     launchctl enable "gui/$UID/$label"
 }
 
-# Step 2: write the three control files.
+# Step 2: write the four control files.
 write_plist "$COLLECTOR_LABEL" "collector.log" KeepAlive 0 \
     "$PYTHON" "$REPO/kalshi_collector.py" --series "${SERIES[@]}"
 
@@ -106,16 +110,23 @@ write_plist "$BACKFILL_LABEL" "backfill.log" StartInterval 3600 \
 write_plist "$REPORT_LABEL" "report.log" StartInterval 300 \
     "$PYTHON" "$REPO/make_report.py"
 
-# Step 3: start the three services.
+# The weather collector uses its own table of the cities. It does not need the
+# names of the series of Kalshi.
+write_plist "$WEATHER_LABEL" "weather.log" KeepAlive 0 \
+    "$PYTHON" "$REPO/weather_collector.py"
+
+# Step 3: start the four services.
 start_service "$COLLECTOR_LABEL"
 start_service "$BACKFILL_LABEL"
 start_service "$REPORT_LABEL"
+start_service "$WEATHER_LABEL"
 
-echo "The three services are installed and started."
+echo "The four services are installed and started."
 echo "  series   : ${SERIES[*]}"
 echo "  collector: it runs always. Log: $REPO/collector.log"
 echo "  backfill : it runs each hour. Log: $REPO/backfill.log"
 echo "  report   : it runs each 5 minutes. Log: $REPO/report.log"
+echo "  weather  : it runs always. Log: $REPO/weather.log"
 echo
 echo "To see your dashboard:  open $REPO/report.html"
 echo "To see the collector :  tail -f $REPO/collector.log"

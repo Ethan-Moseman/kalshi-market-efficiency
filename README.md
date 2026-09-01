@@ -278,6 +278,7 @@ The command installs three services:
 | collector | It runs always. It writes each change of a quote. |
 | backfill | It runs each hour. It gets the past minutes from Kalshi. |
 | report | It runs each 5 minutes. It makes the dashboard `report.html`. |
+| weather | It runs always. It records the forecast and the temperature. |
 
 The backfill fills each gap of the collector. A gap occurs when the Mac sleeps.
 A gap also occurs after an error. Because of this, the two services together
@@ -288,6 +289,7 @@ To see the messages, use these commands:
 ```bash
 tail -f collector.log
 tail -f backfill.log
+tail -f weather.log
 ```
 
 Push Ctrl-C to leave a log. The service continues.
@@ -518,3 +520,98 @@ python3 kalshi_collector.py --series $(python3 find_series.py --category weather
 ```
 
 Each series gets its own CSV file. The dashboard shows all series together.
+
+
+## 15. The weather data
+
+The market collector records the opinion of the market. The program
+`weather_collector.py` records the information that moves that opinion.
+
+The two groups of files together give one number: **the delay between new
+information and a new price.**
+
+```bash
+python3 weather_collector.py --list       # The table of the cities.
+python3 weather_collector.py --inspect    # One fetch. Print the values.
+python3 weather_collector.py              # Collect each city.
+python3 weather_collector.py --series KXHIGHNY --interval 30
+```
+
+The program uses the public API of the National Weather Service at
+`api.weather.gov`. This API needs no password and no key. It needs a User-Agent
+header with a contact. The program sends the address of this repository.
+
+### The two files
+
+The program writes to the folder `data/weather/`.
+
+| File | One line is |
+| --- | --- |
+| `forecast_<series>_<date>.csv` | A new forecast of the high temperature. |
+| `observation_<series>_<date>.csv` | A new measurement of the station. |
+
+The program writes a forecast line only when the temperature or the description
+changes. A new publication with the same values makes no line. This rule is the
+same rule as the rule of the market collector.
+
+### The columns of the forecast
+
+| Column | Meaning |
+| --- | --- |
+| `recv_ts_ns` | The local time of the answer, in nanoseconds. |
+| `rtt_ms` | The round-trip time of the request, in milliseconds. |
+| `series` and `city` | The market and the city. |
+| `target_date` | The day of the forecast. |
+| `period_name` | The name of the period. An example is `Today`. |
+| `high_f` | The high temperature of that day, in Fahrenheit. |
+| `short_forecast` | The short text. An example is `Sunny`. |
+| `nws_update_time` | The time of the publication, from the NWS. |
+
+The column `recv_ts_ns` is the important column. It is **your** time, from the
+same clock as the market file. Because of this, you can subtract the two times.
+
+### The columns of the observation
+
+| Column | Meaning |
+| --- | --- |
+| `obs_time` | The time of the measurement, from the station. |
+| `temp_c` and `temp_f` | The temperature in Celsius and in Fahrenheit. |
+| `description` | The short text of the station. |
+
+At the start of each day the program gets each observation of that day. Because
+of this, the file has the full day, and not only the part after the start.
+
+### The station of each market
+
+**CAUTION: You must confirm the station of each market.** Each market names its
+station in the field `rules_primary`. Use this command to read that text:
+
+```bash
+python3 kalshi_collector.py --inspect | grep rules_primary
+```
+
+If the station is different, correct the table `CITIES` in the program. You can
+also make the file `weather_cities.json`. That file replaces the table. It has
+this shape:
+
+```json
+{
+  "KXHIGHNY": {"city": "New York", "station": "KNYC",
+               "lat": 40.7789, "lon": -73.9692}
+}
+```
+
+### The two questions that this data answers
+
+1. **The reaction time.** The NWS publishes a new forecast. How many seconds
+   later does the price move? Each publication gives one measurement. Many
+   publications give a distribution.
+2. **The anticipation.** Does the price move **before** the new forecast? If it
+   does, the market has the information before the NWS publishes it.
+
+The second question is more interesting. The ladder test finds an error of
+logic. This test finds the speed of the information.
+
+**NOTE: You cannot get this data later.** The NWS gives the forecast of now. It
+does not give the time when you first saw an older forecast. Each hour without
+this collector is an hour that is lost.
