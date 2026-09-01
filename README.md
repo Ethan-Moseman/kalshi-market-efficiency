@@ -254,47 +254,52 @@ A large spread and a small number of changes show a market with a low
 efficiency. A small spread and many changes show a market with a high
 efficiency.
 
-## 11. The collector as a service on macOS
+## 11. The two services on macOS
 
-A service starts at each login. It also starts again after an error. Use a
-service for a collection of many days.
+A service starts at each login. It also starts again after an error. Use the
+services for a collection of many days.
 
-To install the service, use this command:
+To install the two services, use this command:
 
 ```bash
 bash macos/install_service.sh KXHIGHNY
 ```
 
-The script does these actions:
+The command installs two services:
 
-1. It examines the virtual environment.
-2. It writes a control file for launchd to `~/Library/LaunchAgents/`.
-3. It starts the collector.
-4. It sends all messages to the file `collector.log`.
+| Service | Function |
+| --- | --- |
+| collector | It runs always. It writes each change of a quote. |
+| backfill | It runs each hour. It gets the past minutes from Kalshi. |
 
-To see the messages, use this command:
+The backfill fills each gap of the collector. A gap occurs when the Mac sleeps.
+A gap also occurs after an error. Because of this, the two services together
+give a full set of data.
+
+To see the messages, use these commands:
 
 ```bash
 tail -f collector.log
+tail -f backfill.log
 ```
 
-To stop the service, use this command:
+Push Ctrl-C to leave a log. The service continues.
+
+To stop the two services, use this command:
 
 ```bash
 bash macos/uninstall_service.sh
 ```
 
-The command stops the collector. It does not remove your data.
+The command stops the two services. It does not remove your data.
 
-**CAUTION: A Mac in sleep does not collect data.** The service stops with the
-sleep of the computer. It starts again after the wake.
+**NOTE: A Mac in sleep collects no data with the collector.** The collector
+stops with the sleep. It starts again after the wake. The backfill then gets
+the minutes of the sleep from Kalshi. The candlesticks give one value for each
+minute. They do not give each change.
 
-There are three solutions:
-
-1. Keep the Mac awake with the command `caffeinate -i -s`.
-2. Change the energy settings of the Mac. Then the Mac does not sleep.
-3. Put the collector on a small computer in the cloud. This solution is the
-   best solution for a collection of many weeks.
+For a full set of changes for 24 hours, put the collector on a small computer
+in the cloud. That computer does not sleep.
 
 ## 12. The past data
 

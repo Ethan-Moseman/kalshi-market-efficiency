@@ -1,8 +1,12 @@
 #!/bin/bash
-# Install the collector as a service on macOS.
+# Install the two services of this project on macOS.
 #
-# The service starts at each login of the user. It starts again after an error.
-# It writes its messages to the file collector.log.
+# Service 1: the collector. It runs always. It writes each change of a quote.
+# Service 2: the backfill. It runs each hour. It gets the past minutes from
+#            Kalshi. It fills each gap of the collector. A gap occurs when the
+#            Mac sleeps, or after an error.
+#
+# The two services start at each login of the user.
 #
 # Use: bash macos/install_service.sh [SERIES]
 # The default series is KXHIGHNY.
@@ -10,10 +14,11 @@
 set -euo pipefail
 
 SERIES="${1:-KXHIGHNY}"
-LABEL="com.ethanmoseman.kalshi-collector"
+COLLECTOR_LABEL="com.ethanmoseman.kalshi-collector"
+BACKFILL_LABEL="com.ethanmoseman.kalshi-backfill"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$REPO/.venv/bin/python3"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+AGENTS="$HOME/Library/LaunchAgents"
 
 # Step 1: examine the necessary parts.
 if ! command -v launchctl > /dev/null; then
@@ -30,52 +35,77 @@ if [ ! -x "$PYTHON" ]; then
     exit 1
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents"
-mkdir -p "$REPO/data"
+mkdir -p "$AGENTS" "$REPO/data" "$REPO/data/history"
 
-# Step 2: write the control file for launchd.
-cat > "$PLIST" <<PLISTEOF
+# write_plist LABEL LOGFILE KEY VALUE PROGRAM_ARGUMENTS...
+# The key is KeepAlive for a program that runs always. The key is StartInterval
+# for a program that runs again after a number of seconds.
+write_plist() {
+    local label="$1" logfile="$2" key="$3" value="$4"
+    shift 4
+    local arguments=""
+    for argument in "$@"; do
+        arguments="$arguments        <string>$argument</string>"$'\n'
+    done
+    if [ "$key" = "KeepAlive" ]; then
+        local schedule="    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>"
+    else
+        local schedule="    <key>StartInterval</key>
+    <integer>$value</integer>"
+    fi
+    cat > "$AGENTS/$label.plist" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$LABEL</string>
+    <string>$label</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$PYTHON</string>
-        <string>$REPO/kalshi_collector.py</string>
-        <string>--series</string>
-        <string>$SERIES</string>
-    </array>
+$arguments    </array>
     <key>WorkingDirectory</key>
     <string>$REPO</string>
     <key>RunAtLoad</key>
     <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
+$schedule
     <key>StandardOutPath</key>
-    <string>$REPO/collector.log</string>
+    <string>$REPO/$logfile</string>
     <key>StandardErrorPath</key>
-    <string>$REPO/collector.log</string>
+    <string>$REPO/$logfile</string>
     <key>ProcessType</key>
     <string>Background</string>
 </dict>
 </plist>
 PLISTEOF
+}
 
-# Step 3: start the service. The command bootout stops an older version.
-launchctl bootout "gui/$UID/$LABEL" 2> /dev/null || true
-launchctl bootstrap "gui/$UID" "$PLIST"
-launchctl enable "gui/$UID/$LABEL"
+start_service() {
+    local label="$1"
+    launchctl bootout "gui/$UID/$label" 2> /dev/null || true
+    launchctl bootstrap "gui/$UID" "$AGENTS/$label.plist"
+    launchctl enable "gui/$UID/$label"
+}
 
-echo "The service is installed and started."
-echo "  series      : $SERIES"
-echo "  control file: $PLIST"
-echo "  log file    : $REPO/collector.log"
+# Step 2: write the two control files.
+write_plist "$COLLECTOR_LABEL" "collector.log" KeepAlive 0 \
+    "$PYTHON" "$REPO/kalshi_collector.py" --series "$SERIES"
+
+write_plist "$BACKFILL_LABEL" "backfill.log" StartInterval 3600 \
+    "$PYTHON" "$REPO/backfill.py" --series "$SERIES" --days 1
+
+# Step 3: start the two services.
+start_service "$COLLECTOR_LABEL"
+start_service "$BACKFILL_LABEL"
+
+echo "The two services are installed and started."
+echo "  series   : $SERIES"
+echo "  collector: it runs always. Log: $REPO/collector.log"
+echo "  backfill : it runs each hour. Log: $REPO/backfill.log"
 echo
-echo "To see the messages:  tail -f $REPO/collector.log"
-echo "To see the state   :  launchctl print gui/$UID/$LABEL | head -20"
-echo "To stop the service:  bash macos/uninstall_service.sh"
+echo "To see the collector:  tail -f $REPO/collector.log"
+echo "To see the backfill :  tail -f $REPO/backfill.log"
+echo "To see your data    :  cd $REPO && python3 read_data.py"
+echo "To stop the services:  bash macos/uninstall_service.sh"

@@ -1,18 +1,19 @@
 #!/bin/bash
-# Remove the service of the collector from macOS.
+# Remove the two services of this project from macOS.
 #
 # Use: bash macos/uninstall_service.sh
 #
-# The command stops the collector. It also removes the control file. It does not
-# remove the data in the folder data/.
+# The command stops the collector and the backfill. It also removes the two
+# control files. It does not remove your data.
 
 set -euo pipefail
 
-LABEL="com.ethanmoseman.kalshi-collector"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+AGENTS="$HOME/Library/LaunchAgents"
 
-launchctl bootout "gui/$UID/$LABEL" 2> /dev/null || true
-rm -f "$PLIST"
+for LABEL in com.ethanmoseman.kalshi-collector com.ethanmoseman.kalshi-backfill; do
+    launchctl bootout "gui/$UID/$LABEL" 2> /dev/null || true
+    rm -f "$AGENTS/$LABEL.plist"
+    echo "The service $LABEL is stopped and removed."
+done
 
-echo "The service is stopped. The control file is removed."
-echo "The data in the folder data/ is not changed."
+echo "Your data in the folders data/ and data/history/ is not changed."
