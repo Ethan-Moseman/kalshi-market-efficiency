@@ -42,6 +42,27 @@ MAX_PAGES = 50  # This limit stops an endless loop if the cursor does not end.
 # two fields alone makes no new line.
 QUOTE_FIELDS = ("yes_bid", "yes_ask", "no_bid", "no_ask")
 
+# The program takes these fields from each market.
+MARKET_FIELDS = ("ticker", "event_ticker") + QUOTE_FIELDS + ("volume", "open_interest")
+
+# The API sends the price as a text in dollars. The name of the field has the
+# ending "_dollars". An example is yes_bid_dollars = "0.0100". This value is
+# equal to 1 cent. The counters have the ending "_fp".
+#
+# Older documents of Kalshi use short names such as yes_bid and volume. The
+# program accepts the two groups of names. It uses the first name that the
+# answer contains.
+FIELD_SOURCES = {
+    "ticker": ("ticker",),
+    "event_ticker": ("event_ticker",),
+    "yes_bid": ("yes_bid_dollars", "yes_bid"),
+    "yes_ask": ("yes_ask_dollars", "yes_ask"),
+    "no_bid": ("no_bid_dollars", "no_bid"),
+    "no_ask": ("no_ask_dollars", "no_ask"),
+    "volume": ("volume_fp", "volume"),
+    "open_interest": ("open_interest_fp", "open_interest"),
+}
+
 CSV_FIELDS = [
     "recv_ts_ns",
     "rtt_ms",
@@ -115,23 +136,30 @@ def fetch_markets(session, series_ticker):
     return snapshots
 
 
+def field_value(market, field):
+    """Get the value of one field. Accept the two groups of names."""
+    for name in FIELD_SOURCES[field]:
+        value = market.get(name)
+        if value is not None:
+            return value
+    return None
+
+
 def quote_key(market):
     """Return the four prices of one market as a tuple."""
-    return tuple(market.get(field) for field in QUOTE_FIELDS)
+    return tuple(field_value(market, field) for field in QUOTE_FIELDS)
+
+
+def market_has_no_price(market):
+    """Return True if the market contains no price with a known name."""
+    return all(field_value(market, field) is None for field in QUOTE_FIELDS)
 
 
 def build_row(market, recv_ts_ns, rtt_ms):
     """Make one line for the CSV file."""
-    row = {
-        "recv_ts_ns": recv_ts_ns,
-        "rtt_ms": f"{rtt_ms:.3f}",
-        "ticker": market.get("ticker"),
-        "event_ticker": market.get("event_ticker"),
-        "volume": market.get("volume"),
-        "open_interest": market.get("open_interest"),
-    }
-    for field in QUOTE_FIELDS:
-        row[field] = market.get(field)
+    row = {"recv_ts_ns": recv_ts_ns, "rtt_ms": f"{rtt_ms:.3f}"}
+    for field in MARKET_FIELDS:
+        row[field] = field_value(market, field)
     # The csv module writes the value None as an empty cell. The next line makes
     # this behavior clear to the reader.
     return {k: ("" if v is None else v) for k, v in row.items()}
@@ -195,13 +223,23 @@ class SeriesCollector:
         self.writer = DailyCsvWriter(data_dir, series_ticker)
         self.last_quotes = {}
         self.lines_written = 0
+        self.checked_names = False
 
     def poll(self, session):
         """Do one poll. Return the number of markets and the number of lines."""
         snapshots = fetch_markets(session, self.series_ticker)
+        # The API can change the names of its fields. Then the program finds no
+        # price. It gives a caution one time. A silent collection of empty
+        # lines is worse than a message.
+        if snapshots and not self.checked_names:
+            self.checked_names = True
+            if market_has_no_price(snapshots[0][0]):
+                _log(f"{self.series_ticker}: CAUTION. The program found no price "
+                     "in the answer. The API possibly changed the names of its "
+                     "fields. Use the option --inspect. Then look at the names.")
         written = 0
         for market, recv_ts_ns, rtt_ms in snapshots:
-            ticker = market.get("ticker")
+            ticker = field_value(market, "ticker")
             if not ticker:
                 continue
             key = quote_key(market)
@@ -245,6 +283,15 @@ def run_inspect(session, series_ticker, ticker=None):
         _log(f"The program shows the raw JSON of {match.get('ticker')}. "
              "To select a different market, use the option --ticker.")
     print(json.dumps(match, indent=2, sort_keys=True))
+    _log("The program writes these values to the CSV file:")
+    for field in MARKET_FIELDS:
+        value = field_value(match, field)
+        source = next((n for n in FIELD_SOURCES[field] if match.get(n) is not None),
+                      "NOT FOUND")
+        _log(f"    {field} = {value!r}   (from the field {source})")
+    if market_has_no_price(match):
+        _log("CAUTION. The program found no price. Send these names to the author.")
+        return 1
     return 0
 
 

@@ -48,9 +48,25 @@ Do this test before you start a long collection.
 
 1. Run this command: `python3 kalshi_collector.py --inspect`
 2. The program sends one request. Then it prints the JSON of one market.
-3. Read the field names in the JSON.
-4. Compare these names with the columns in section 6.
-5. If a name is different, tell the author. The program needs a correction.
+3. After the JSON, the program prints the value of each column.
+4. Each line shows the column, the value and the field of the API.
+5. Each price must show a value. An example is `yes_bid = '0.0000'`.
+
+The last part of a good result looks like this:
+
+    The program writes these values to the CSV file:
+        ticker = 'KXHIGHNY-26SEP01-T90'   (from the field ticker)
+        event_ticker = 'KXHIGHNY-26SEP01'   (from the field event_ticker)
+        yes_bid = '0.0000'   (from the field yes_bid_dollars)
+        yes_ask = '0.0100'   (from the field yes_ask_dollars)
+        no_bid = '0.9900'   (from the field no_bid_dollars)
+        no_ask = '1.0000'   (from the field no_ask_dollars)
+        volume = '2375.00'   (from the field volume_fp)
+        open_interest = '1996.00'   (from the field open_interest_fp)
+
+**CAUTION: The program prints a caution if it finds no price.** Then the API
+changed the names of its fields. Do not start a collection. Tell the author.
+The program needs a correction.
 
 To see a different market, use the option `--ticker`:
 
@@ -92,14 +108,40 @@ The name of the file contains the series and the date. An example is
 | `rtt_ms` | The round-trip time of that request, in milliseconds. |
 | `ticker` | The name of the market. |
 | `event_ticker` | The name of the event that contains the market. |
-| `yes_bid` | The best price to buy YES, in cents. |
-| `yes_ask` | The best price to sell YES, in cents. |
-| `no_bid` | The best price to buy NO, in cents. |
-| `no_ask` | The best price to sell NO, in cents. |
+| `yes_bid` | The best price to buy YES, in dollars. |
+| `yes_ask` | The best price to sell YES, in dollars. |
+| `no_bid` | The best price to buy NO, in dollars. |
+| `no_ask` | The best price to sell NO, in dollars. |
 | `volume` | The number of contracts in trades until now. |
 | `open_interest` | The number of open contracts. |
 
 An empty cell means that the API sent no value for this field.
+
+### The unit of a price
+
+The API sends each price as a text in dollars. The program writes this text
+without a change. The value `0.0100` is equal to 1 cent. The value `0.9900` is
+equal to 99 cents. A price is always between `0.0000` and `1.0000`.
+
+### The names of the fields
+
+The name of a column is not equal to the name of the field in the API. This
+table shows the two names:
+
+| The column in the CSV file | The field in the API |
+| --- | --- |
+| `yes_bid` | `yes_bid_dollars` |
+| `yes_ask` | `yes_ask_dollars` |
+| `no_bid` | `no_bid_dollars` |
+| `no_ask` | `no_ask_dollars` |
+| `volume` | `volume_fp` |
+| `open_interest` | `open_interest_fp` |
+| `ticker` | `ticker` |
+| `event_ticker` | `event_ticker` |
+
+Older documents of Kalshi use short names such as `yes_bid` and `volume`. The
+program accepts the two groups of names. It uses the first name that the answer
+contains. The long name has the first position.
 
 To change `recv_ts_ns` into a normal time, divide the value by 1000000000. The
 result is the time in seconds after 1970-01-01.
@@ -157,12 +199,12 @@ Run the tests after each change to the program.
 
 ## 9. The status against the real API
 
-The author could not test this program against the real Kalshi API. The network
-gate of the test computer denied the connection. This is a rule of that
-computer. It is not a fault in the program.
+A user did the test of section 4 against the real Kalshi API on 2026-09-01. The
+API answered. The names of the fields were different from the first version of
+this program. The program now uses the correct names.
 
-All tests against the fake server passed.
+All 34 automatic tests passed. One of these tests uses a copy of the real
+answer from the API.
 
-**CAUTION: Do the test in section 4 before your first long collection.** This
-test shows the true field names from Kalshi. It also shows that your network
-permits the connection.
+**CAUTION: Do the test in section 4 before your first long collection.** The
+API can change again. This test finds the change in 5 seconds.

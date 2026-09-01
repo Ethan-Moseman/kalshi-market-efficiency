@@ -30,9 +30,31 @@ os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 
 
+def make_live_market(ticker="KXHIGHNY-26SEP01-T90", yes_bid="0.0000",
+                     yes_ask="0.0100", no_bid="0.9900", no_ask="1.0000",
+                     volume="2375.00", open_interest="1996.00"):
+    """Make one market with the names of the live API.
+
+    The live API sends the price as a text in dollars. The name of the field has
+    the ending "_dollars". The counters have the ending "_fp".
+    """
+    return {
+        "ticker": ticker,
+        "event_ticker": "KXHIGHNY-26SEP01",
+        "yes_bid_dollars": yes_bid,
+        "yes_ask_dollars": yes_ask,
+        "no_bid_dollars": no_bid,
+        "no_ask_dollars": no_ask,
+        "volume_fp": volume,
+        "open_interest_fp": open_interest,
+        "status": "active",
+        "market_type": "binary",
+    }
+
+
 def make_market(ticker="KXHIGHNY-26SEP01-B80", yes_bid=40, yes_ask=44, no_bid=56,
                 no_ask=60, volume=100, open_interest=50):
-    """Make one market. The fields are the same as the fields of the Kalshi API."""
+    """Make one market with the short names of the older documents."""
     return {
         "ticker": ticker,
         "event_ticker": "KXHIGHNY-26SEP01",
@@ -399,6 +421,116 @@ class TestOptions(CollectorTestCase):
         self.start_api(lambda q: (200, {"markets": [], "cursor": ""}))
         result = kc.main(["--inspect", "--api-url", self.api.url])
         self.assertEqual(result, 1)
+
+
+class TestLiveFieldNames(CollectorTestCase):
+    """Tests for the names of the fields of the live Kalshi API."""
+
+    def poll_once(self, market, data_dir=None):
+        """Poll one time with one market. Return the collector."""
+        self.start_api(lambda q: (200, {"markets": [market], "cursor": ""}))
+        collector = kc.SeriesCollector("KXHIGHNY", data_dir or self.data_dir)
+        collector.poll(kc.make_session())
+        return collector
+
+    def test_the_program_reads_the_price_from_the_field_dollars(self):
+        collector = self.poll_once(make_live_market())
+        collector.close()
+        line = dict(zip(kc.CSV_FIELDS, self.read_csv()[1]))
+        self.assertEqual(line["yes_bid"], "0.0000")
+        self.assertEqual(line["yes_ask"], "0.0100")
+        self.assertEqual(line["no_bid"], "0.9900")
+        self.assertEqual(line["no_ask"], "1.0000")
+
+    def test_the_program_reads_the_counters_from_the_field_fp(self):
+        collector = self.poll_once(make_live_market())
+        collector.close()
+        line = dict(zip(kc.CSV_FIELDS, self.read_csv()[1]))
+        self.assertEqual(line["volume"], "2375.00")
+        self.assertEqual(line["open_interest"], "1996.00")
+        self.assertEqual(line["ticker"], "KXHIGHNY-26SEP01-T90")
+        self.assertEqual(line["event_ticker"], "KXHIGHNY-26SEP01")
+
+    def test_a_change_of_the_price_makes_a_new_line(self):
+        answers = [make_live_market(yes_bid="0.0000"),
+                   make_live_market(yes_bid="0.0100"),
+                   make_live_market(yes_bid="0.0100")]
+        state = {"n": 0}
+
+        def responder(_query):
+            market = answers[min(state["n"], len(answers) - 1)]
+            state["n"] += 1
+            return 200, {"markets": [market], "cursor": ""}
+
+        self.start_api(responder)
+        collector = kc.SeriesCollector("KXHIGHNY", self.data_dir)
+        session = kc.make_session()
+        counts = [collector.poll(session)[1] for _ in answers]
+        collector.close()
+        self.assertEqual(counts, [1, 1, 0])
+
+    def test_a_change_of_the_volume_alone_makes_no_new_line(self):
+        answers = [make_live_market(volume="2375.00"),
+                   make_live_market(volume="2400.00")]
+        state = {"n": 0}
+
+        def responder(_query):
+            market = answers[min(state["n"], len(answers) - 1)]
+            state["n"] += 1
+            return 200, {"markets": [market], "cursor": ""}
+
+        self.start_api(responder)
+        collector = kc.SeriesCollector("KXHIGHNY", self.data_dir)
+        session = kc.make_session()
+        counts = [collector.poll(session)[1] for _ in answers]
+        collector.close()
+        self.assertEqual(counts, [1, 0])
+
+    def test_the_long_name_has_the_first_position(self):
+        market = make_live_market()
+        market["yes_bid"] = 99
+        self.assertEqual(kc.field_value(market, "yes_bid"), "0.0000")
+
+    def test_the_short_name_is_still_correct(self):
+        self.assertEqual(kc.field_value(make_market(yes_bid=40), "yes_bid"), 40)
+
+
+class TestUnknownFieldNames(CollectorTestCase):
+    """Tests for the caution about an unknown name of a field."""
+
+    def test_a_market_without_a_price_gives_a_caution(self):
+        market = {"ticker": "B80", "event_ticker": "E", "yes_bid_cents": 40}
+        self.assertTrue(kc.market_has_no_price(market))
+        self.start_api(lambda q: (200, {"markets": [market], "cursor": ""}))
+        collector = kc.SeriesCollector("KXHIGHNY", self.data_dir)
+        collector.poll(kc.make_session())
+        collector.close()
+        messages = [call.args[0] for call in kc._log.call_args_list]
+        self.assertTrue(any("CAUTION" in message for message in messages))
+
+    def test_a_market_with_a_price_gives_no_caution(self):
+        self.start_api(lambda q: (200, {"markets": [make_live_market()], "cursor": ""}))
+        collector = kc.SeriesCollector("KXHIGHNY", self.data_dir)
+        collector.poll(kc.make_session())
+        collector.close()
+        messages = [call.args[0] for call in kc._log.call_args_list]
+        self.assertFalse(any("CAUTION" in message for message in messages))
+
+    def test_the_option_inspect_gives_an_error_without_a_price(self):
+        market = {"ticker": "B80", "event_ticker": "E"}
+        self.start_api(lambda q: (200, {"markets": [market], "cursor": ""}))
+        with mock.patch("sys.stdout", StringIO()):
+            result = kc.main(["--inspect", "--api-url", self.api.url])
+        self.assertEqual(result, 1)
+
+    def test_the_option_inspect_shows_the_name_of_each_source(self):
+        self.start_api(lambda q: (200, {"markets": [make_live_market()], "cursor": ""}))
+        with mock.patch("sys.stdout", StringIO()):
+            result = kc.main(["--inspect", "--api-url", self.api.url])
+        self.assertEqual(result, 0)
+        messages = " ".join(call.args[0] for call in kc._log.call_args_list)
+        self.assertIn("yes_bid_dollars", messages)
+        self.assertIn("open_interest_fp", messages)
 
 
 if __name__ == "__main__":
