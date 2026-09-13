@@ -1,7 +1,85 @@
-# Kalshi Market Collector
+# Kalshi Market Efficiency
 
-This program collects price data from Kalshi. It writes the data to a CSV file.
+This project measures the efficiency of a prediction market. It collects data
+from Kalshi and from the National Weather Service. Then it tests three
+questions.
+
 This document uses Simplified Technical English (ASD-STE100).
+
+## The three questions
+
+**1. Is the price correct?**
+A price of 70 cents is a forecast. It says "this event comes 70 percent of the
+time". The program `calibration.py` tests that forecast against the answer of
+each settled market. A market with a good calibration has a small gap between
+the price and the answer.
+
+**2. Does the market break a law of logic?**
+The markets of one event make a ladder. A temperature above 90 degrees is also
+above 85 degrees. So the market for 90 degrees must not cost more than the
+market for 85 degrees. This rule is a law of logic. It is not an opinion. The
+dashboard finds each window where the market breaks the rule. In that window a
+trader makes a profit without a risk.
+
+**3. How fast does the market read the news?**
+The National Weather Service publishes a new forecast. The program
+`weather_collector.py` records the second of that publication. The market
+collector records the second of the new price. The difference between the two
+times is the reaction time of the market.
+
+## The result
+
+**TO DO: Put the numbers here after the first full run.**
+
+| Question | The measurement | The result |
+| --- | --- | --- |
+| Calibration | The gap between the price and the answer, for each bin | |
+| Arbitrage | The number and the size of the windows in the ladder | |
+| Reaction time | The seconds from the new forecast to the new price | |
+
+## The programs
+
+| Program | Function |
+| --- | --- |
+| `kalshi_collector.py` | It records each change of a quote, to the second. |
+| `weather_collector.py` | It records each forecast and each measurement of the NWS. |
+| `backfill.py` | It gets the candlesticks and the trades of the past. |
+| `settlements.py` | It gets the answer of each settled market. |
+| `calibration.py` | It tests the forecast against the answer. |
+| `make_report.py` | It makes the dashboard `report.html`. |
+| `read_data.py` | It prints a summary of the data of the collector. |
+| `find_series.py` | It finds the ticker of each series. |
+
+The project has 181 automatic tests. They use a small fake server. They need no
+connection to the internet. To run them, use this command:
+
+    python3 -m unittest discover -v
+
+## Quick start
+
+Install the program:
+
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+
+Test the names of the fields against the live API. Do this first:
+
+    python3 settlements.py --inspect
+
+Then collect the past data and measure the calibration:
+
+    SERIES=$(python3 find_series.py --category weather --tickers)
+    python3 settlements.py --series $SERIES --days 90
+    python3 backfill.py --status settled --days 90 --series $SERIES
+    python3 calibration.py --series $SERIES
+
+To record the present, start the services of section 11. The collector and the
+weather program record the seconds. You cannot get those seconds later.
+
+## The manual
+
+The sections below give the manual of each program.
 
 ## 1. Technical terms
 
