@@ -58,6 +58,17 @@ MAX_PAGES = 200
 # request. The program divides a long time into parts of this size.
 MAX_PERIODS_IN_ONE_REQUEST = 5000
 
+# Kalshi keeps the recent markets and the old markets in two different places.
+# The first endpoint gives a market of the last months. A market that settled
+# before that time is only in the second endpoint. The program tries the first
+# endpoint. After an error, it tries the second endpoint.
+#
+# CAUTION: The author did not test the second endpoint against the live API.
+# Run `python3 backfill.py --status settled --days 200` and read the log. If the
+# log shows an error for each old market, the path changed. Tell the author.
+CANDLE_URL = "{base}/series/{series}/markets/{ticker}/candlesticks"
+HISTORICAL_CANDLE_URL = "{base}/historical/markets/{ticker}/candlesticks"
+
 SECONDS_IN_ONE_MINUTE = 60
 
 CANDLE_FIELDS = [
@@ -179,18 +190,39 @@ def candle_row(market, candle):
     return {k: ("" if v is None else v) for k, v in row.items()}
 
 
+def candle_urls(series_ticker, ticker):
+    """Give the two endpoints of the candlesticks, in the order of the try."""
+    return [
+        CANDLE_URL.format(base=BASE_URL, series=series_ticker, ticker=ticker),
+        HISTORICAL_CANDLE_URL.format(base=BASE_URL, ticker=ticker),
+    ]
+
+
 def fetch_candles(session, series_ticker, market, start_ts, end_ts, interval_minutes):
-    """Get the candlesticks of one market. Return a list of lines."""
+    """Get the candlesticks of one market. Return a list of lines.
+
+    The program tries the endpoint of the recent markets first. If that endpoint
+    gives an error, the program tries the endpoint of the old markets. A market
+    that settled some months ago is only in the second endpoint.
+    """
     ticker = market.get("ticker")
-    url = f"{BASE_URL}/series/{series_ticker}/markets/{ticker}/candlesticks"
+    urls = candle_urls(series_ticker, ticker)
     rows = []
     for part_start, part_end in time_parts(start_ts, end_ts, interval_minutes):
         params = {"start_ts": part_start, "end_ts": part_end,
                   "period_interval": interval_minutes}
-        try:
-            payload = get_json(session, url, params)
-        except requests.HTTPError as exc:
-            _log(f"{ticker}: the request for the candlesticks failed: {exc}")
+        payload = None
+        last_error = None
+        for url in urls:
+            try:
+                payload = get_json(session, url, params)
+                break
+            except requests.HTTPError as exc:
+                last_error = exc
+                continue
+        if payload is None:
+            _log(f"{ticker}: the request for the candlesticks failed at each "
+                 f"endpoint: {last_error}")
             continue
         for candle in payload.get("candlesticks") or []:
             rows.append(candle_row(market, candle))
@@ -284,7 +316,9 @@ def parse_args(argv=None):
                              "Default: %(default)s")
     parser.add_argument("--status", default="open",
                         help="The status of the markets: open, closed, settled "
-                             "or all. Default: %(default)s")
+                             "or all. Default: %(default)s. CAUTION: the default "
+                             "gets NO settled market. For the calibration, use "
+                             "--status settled.")
     parser.add_argument("--data-dir", default=DEFAULT_DATA_DIR,
                         help="The folder for the CSV files. Default: %(default)s")
     parser.add_argument("--base-url", default=BASE_URL, help=argparse.SUPPRESS)

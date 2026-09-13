@@ -207,7 +207,7 @@ A user did the test of section 4 against the real Kalshi API on 2026-09-01. The
 API answered. The names of the fields were different from the first version of
 this program. The program now uses the correct names.
 
-All 34 automatic tests passed. One of these tests uses a copy of the real
+All 181 automatic tests passed. One of these tests uses a copy of the real
 answer from the API.
 
 **CAUTION: Do the test in section 4 before your first long collection.** The
@@ -339,6 +339,16 @@ The program writes to these two files:
 You may run the program more than one time. It reads the file first. Then it
 adds only the new lines. It makes no copy of a line. A candlestick has the key
 `ticker` and `end_period_ts`. A trade has the key `trade_id`.
+
+**CAUTION: The default of `--status` is `open`. It gets NO settled market.**
+For the calibration you need the settled markets. Use this command:
+
+    python3 backfill.py --status settled --days 90 --series KXHIGHNY
+
+Kalshi keeps the recent markets and the old markets in two different places.
+The program tries the endpoint of the recent markets first. After an error, it
+tries the endpoint of the old markets. Read the log after a long backfill. If
+the log shows an error for each old market, the path changed. Tell the author.
 
 **NOTE: The past data is in the folder `data/history/`.** The data of the
 collector is in the folder `data/`. The two groups have different columns. The
@@ -615,3 +625,148 @@ logic. This test finds the speed of the information.
 **NOTE: You cannot get this data later.** The NWS gives the forecast of now. It
 does not give the time when you first saw an older forecast. Each hour without
 this collector is an hour that is lost.
+
+
+## 16. The answer of each market
+
+The collector records the opinion of the market. It does not record the answer.
+A price of 70 cents says "this event comes 70 percent of the time". To test that
+forecast, you must know what came. The program `settlements.py` gets that.
+
+For each market that settled, Kalshi gives the field `result`. The value is
+`yes` or `no`. This value is the truth.
+
+```bash
+python3 settlements.py --inspect                 # Test the names of the fields.
+python3 settlements.py                           # The series KXHIGHNY.
+python3 settlements.py --series KXHIGHNY KXHIGHCHI
+python3 settlements.py --days 90                 # The markets of the last 90 days.
+```
+
+**CAUTION: Do the test with `--inspect` before your first collection.** The
+program prints the JSON of one settled market. Then it prints the value of each
+column. If the field `result` is not `yes` and not `no`, the program prints a
+caution and stops. The name of the field changed. Tell the author.
+
+The program writes to this file:
+
+    data/history/settlements_<series>.csv
+
+| Column | Meaning |
+| --- | --- |
+| `ticker` and `event_ticker` | The names of the market and the event. |
+| `series` | The name of the series. |
+| `status` | The status from the API. An example is `settled`. |
+| `result` | The answer from the API: `yes` or `no`. |
+| `result_binary` | The same answer as 1, 0 or an empty cell. |
+| `close_time` and `close_ts` | The time of the close, as text and as seconds. |
+| `strike_type` | The type of the strike. An example is `greater`. |
+| `floor_strike` and `cap_strike` | The limits of the market. |
+| `expiration_value` | The value that decided the answer. An example is `86`. |
+| `last_price` | The last price of a trade, in dollars. |
+| `volume` and `open_interest` | The counters at the close. |
+
+An empty cell in `result_binary` shows a market with no answer. An example is a
+market that Kalshi cancelled. The program `calibration.py` does not use that
+market.
+
+The key of a line is the ticker. A market settles one time only. Because of
+this, you can run the program each day. It adds only the new markets.
+
+## 17. The calibration
+
+The program `calibration.py` joins the answers and the prices. Then it tests the
+forecast of the market. This program uses no library.
+
+```bash
+python3 calibration.py                              # The series KXHIGHNY.
+python3 calibration.py --series KXHIGHNY KXHIGHCHI  # Two series together.
+python3 calibration.py --hours 12                   # A longer horizon.
+python3 calibration.py --bin-width 25               # Four wide bins.
+```
+
+The program needs the two files of section 16 and section 12:
+
+    data/history/settlements_<series>.csv
+    data/history/candles_<series>.csv
+
+### The horizon
+
+**CAUTION: The program takes the price BEFORE the close. It does not take the
+last price.** At the close, the price is almost 0 or almost 100. The market then
+knows the answer. A calibration of the last price looks perfect and measures
+nothing.
+
+The option `--hours` sets that time. The default is 6 hours before the close.
+The program takes the last candlestick that is not after that time.
+
+### The size of the sample
+
+**The markets of one event are not independent.** The event `KXHIGHNY-26SEP01`
+has the markets T85, T88 and T90. One temperature decides all three. So three
+lines are one measurement, and not three measurements.
+
+Because of this, the program counts two numbers:
+
+| Number | Meaning |
+| --- | --- |
+| contracts | The number of markets. |
+| events | The number of independent measurements. |
+
+The second number decides the precision. A large number of contracts with a
+small number of events gives a weak result. The program makes each error from
+the events.
+
+### The table
+
+| Column | Meaning |
+| --- | --- |
+| `price bin` | The group of the price, in cents. |
+| `contracts` | The number of markets in the bin. |
+| `events` | The number of independent measurements in the bin. |
+| `forecast` | The mean price of the bin. This is what the market said. |
+| `realized` | The part of the markets of the bin that gave YES. |
+| `error` | The error of `realized`. |
+| `gap` | `realized` minus `forecast`. A star marks a gap of more than 2 errors. |
+
+A market with a good calibration has a small gap in each bin. A market with a
+bad calibration has a large gap with the same sign in many bins.
+
+The Brier score gives one number for all bins. A score of 0 is a perfect
+forecast. A score of 0.25 is a coin.
+
+### The two errors
+
+The program makes two errors and uses the larger one.
+
+1. The error of the group. The markets of one event make one group. This error
+   is correct when the answers of a bin are different.
+2. The smallest error. A bin where each market gave the same answer has an
+   error of 0 from the first method. An error of 0 is not true: a bin with 6
+   events that all gave YES does not prove that the price is correct. This
+   method adds two YES and two NO. Then it makes the error from the number of
+   events. The result is never 0. Statisticians call this correction the
+   interval of Agresti and Coull.
+
+### Is the data large enough?
+
+At the end, the program prints an answer to this question. It counts the bins
+with 100 events or more. Then it says one of three things:
+
+1. The data is large enough.
+2. The data is in the middle. Use wide bins.
+3. The data is too small.
+
+**NOTE: Do not wait for the collector to make the sample large.** The collector
+gives a few events each day. Kalshi keeps the past markets. One backfill gives
+more events than one month of the collector:
+
+```bash
+python3 settlements.py --series KXHIGHNY KXHIGHCHI --days 90
+python3 backfill.py --status settled --days 90 --series KXHIGHNY KXHIGHCHI
+python3 calibration.py --series KXHIGHNY KXHIGHCHI
+```
+
+The collector and the weather program are still necessary. They record the
+seconds. The candlesticks record only the minutes. And the forecast of the NWS
+is not in the API of Kalshi. Section 15 gives that rule.
