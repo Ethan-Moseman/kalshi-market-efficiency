@@ -29,13 +29,60 @@ times is the reaction time of the market.
 
 ## The result
 
-**TO DO: Put the numbers here after the first full run.**
+Each measurement is reproducible. The quick start below gives the commands. The
+programs print the numbers from your own data.
 
-| Question | The measurement | The result |
+### What the calibration looks like
+
+The program `calibration.py` prints this table:
+
+       price bin  contracts  events  forecast  realized    error      gap
+    --------------------------------------------------------------------------
+        0-10 ¢       1662     587      2.5¢      1.7%     0.6    -0.7 
+       10-20 ¢        332     332     14.4¢     13.3%     1.9    -1.2 
+       20-30 ¢        278     278     25.2¢     28.4%     2.7    +3.2 
+       30-40 ¢        241     241     34.4¢     29.9%     3.0    -4.5 
+       40-50 ¢        185     185     44.8¢     46.5%     3.7    +1.7 
+       50-60 ¢        197     197     55.0¢     60.9%     3.5    +5.9 
+       60-70 ¢        208     208     65.0¢     67.3%     3.3    +2.3 
+       70-80 ¢        194     194     74.6¢     73.7%     3.2    -0.9 
+       80-90 ¢        265     265     85.5¢     85.7%     2.2    +0.2 
+       90-100¢        758     370     97.1¢     97.5%     0.9    +0.4 
+
+**CAUTION: The numbers above come from synthetic data. They are not a finding.**
+The program `make_demo_data.py` makes a market that is correct by construction.
+Each event has one temperature and six strikes. The price of each market is the
+true probability of its strike. To make the same table again, use these two
+commands:
+
+    python3 make_demo_data.py
+    python3 calibration.py --series demo
+
+The table is a test of the program. A correct program finds a small gap in each
+bin of this data. To get a real result, run the commands of the quick start
+against the live API.
+
+### Why the program counts the events
+
+The table has two counts. The count of the contracts is large. The count of the
+events is small. The second count decides the precision.
+
+The markets of one event are not independent. The event `KXHIGHNY-26SEP01` has
+the markets T85, T88 and T90. One temperature decides all three. So three lines
+are one measurement, and not three measurements.
+
+A program that counts the contracts makes the sample look 6 times larger than
+it is. The error of each bin is then too small. The program can show an effect
+that is only noise. This project counts the events and groups the markets of
+one event together.
+
+### The three measurements
+
+| Question | The measurement | The program |
 | --- | --- | --- |
-| Calibration | The gap between the price and the answer, for each bin | |
-| Arbitrage | The number and the size of the windows in the ladder | |
-| Reaction time | The seconds from the new forecast to the new price | |
+| Calibration | The gap between the price and the answer, for each bin | `calibration.py` |
+| Arbitrage | The number and the size of the windows in the ladder | `make_report.py` |
+| Reaction time | The seconds from the new forecast to the new price | `weather_collector.py` |
 
 ## The programs
 
@@ -49,6 +96,7 @@ times is the reaction time of the market.
 | `make_report.py` | It makes the dashboard `report.html`. |
 | `read_data.py` | It prints a summary of the data of the collector. |
 | `find_series.py` | It finds the ticker of each series. |
+| `make_demo_data.py` | It makes synthetic data for a test of the calibration. |
 
 The project has 181 automatic tests. They use a small fake server. They need no
 connection to the internet. To run them, use this command:
